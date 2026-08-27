@@ -5,10 +5,14 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+import json
 import os
+import secrets
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
@@ -18,6 +22,30 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+teachers_file = current_dir / "teachers.json"
+security = HTTPBearer(auto_error=False)
+active_tokens = set()
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+def get_teachers():
+    with teachers_file.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def require_teacher(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+):
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Teacher login required")
+    if credentials.credentials not in active_tokens:
+        raise HTTPException(status_code=401, detail="Invalid or expired login")
+    return credentials.credentials
 
 # In-memory activity database
 activities = {
@@ -88,8 +116,29 @@ def get_activities():
     return activities
 
 
+@app.post("/auth/login")
+def login(login_request: LoginRequest):
+    teachers = get_teachers()
+    if teachers.get(login_request.username) != login_request.password:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    token = secrets.token_urlsafe(32)
+    active_tokens.add(token)
+    return {"token": token, "username": login_request.username}
+
+
+@app.post("/auth/logout")
+def logout(token: str = Depends(require_teacher)):
+    active_tokens.remove(token)
+    return {"message": "Logged out"}
+
+
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(
+    activity_name: str,
+    email: str,
+    _token: str = Depends(require_teacher),
+):
     """Sign up a student for an activity"""
     # Validate activity exists
     if activity_name not in activities:
@@ -111,7 +160,11 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(
+    activity_name: str,
+    email: str,
+    _token: str = Depends(require_teacher),
+):
     """Unregister a student from an activity"""
     # Validate activity exists
     if activity_name not in activities:
