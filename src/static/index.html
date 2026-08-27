@@ -10,6 +10,15 @@
     <header>
       <h1>Mergington High School</h1>
       <h2>Extracurricular Activities</h2>
+      <button id="login-toggle" type="button">Teacher Login</button>
+      <form id="login-form" class="hidden">
+        <label for="username">Username:</label>
+        <input type="text" id="username" required autocomplete="username" />
+        <label for="password">Password:</label>
+        <input type="password" id="password" required autocomplete="current-password" />
+        <button type="submit">Log In</button>
+      </form>
+      <button id="logout-button" class="hidden" type="button">Log Out</button>
     </header>
 
     <main>
